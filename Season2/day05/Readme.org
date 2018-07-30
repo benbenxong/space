@@ -1,0 +1,158 @@
+* Spacemacs Rocks Season 2 (Day 5)
+**  Fix smartparen quote issue
+#+BEGIN_SRC emacs-lisp
+
+(define-advice show-paren-function (:around (fn) fix-show-paren-function)
+  "Highlight enclosing parens."
+  (cond ((looking-at-p "\\s(") (funcall fn))
+        (t (save-excursion
+             (ignore-errors (backward-up-list))
+             (funcall fn)))))
+
+  (sp-local-pair 'emacs-lisp-mode "'" nil :actions nil)
+#+END_SRC
+注：相当于扩展show-paren-function，此advice名为fix-show-paren-function
+    save-excursion 保存光标位置。
+--8'30"n
+** Editing large web page 
+#+BEGIN_SRC emacs-lisp
+(defun remove-dos-eol ()
+  "Replace DOS eolns CR LF with Unix eolns CR"
+  (interactive)
+  (goto-char (point-min))
+  (while (search-forward "\r" nil t) (replace-match "")))
+
+(defun hidden-dos-eol ()
+  "Do not show ^M in files containing mixed UNIX and DOS line endings."
+  (interactive)
+  (setq buffer-display-table (make-display-table))
+  (aset buffer-display-table ?\^M []))
+#+END_SRC
+
+** Add more useful packages for web development
+*** web-mode
+toggle indent in web-mode
+#+BEGIN_SRC emacs-lisp
+  (defun my-web-mode-indent-setup ()
+    (setq web-mode-markup-indent-offset 2) ; web-mode, html tag in html file
+    (setq web-mode-css-indent-offset 2)    ; web-mode, css in html file
+    (setq web-mode-code-indent-offset 2)   ; web-mode, js code in html file
+    )
+
+  (add-hook 'web-mode-hook 'my-web-mode-indent-setup)
+
+  (defun my-toggle-web-indent ()
+    (interactive)
+    ;; web development
+    (if (or (eq major-mode 'js-mode) (eq major-mode 'js2-mode))
+        (progn
+          (setq js-indent-level (if (= js-indent-level 2) 4 2))
+          (setq js2-basic-offset (if (= js2-basic-offset 2) 4 2))))
+
+    (if (eq major-mode 'web-mode)
+        (progn (setq web-mode-markup-indent-offset (if (= web-mode-markup-indent-offset 2) 4 2))
+               (setq web-mode-css-indent-offset (if (= web-mode-css-indent-offset 2) 4 2))
+               (setq web-mode-code-indent-offset (if (= web-mode-code-indent-offset 2) 4 2))))
+    (if (eq major-mode 'css-mode)
+        (setq css-indent-offset (if (= css-indent-offset 2) 4 2)))
+
+    (setq indent-tabs-mode nil))
+
+  (global-set-key (kbd "C-c t i") 'my-toggle-web-indent)
+#+END_SRC
+;; C-c t i 用来4，2缩进切换
+;; M-; 注释行（可以是范围）
+
+*** js2-refactor
+#+BEGIN_SRC emacs-lisp
+(add-hook 'js2-mode-hook 'js2-refactor-mode)
+(js2r-add-keybindings-with-prefix "C-c C-m")
+#+END_SRC
+- extract method (em)
+- extract function (ef)
+选中代码块
+C-c C-m :ef 然后输入新函数名，会将代码块提取为新的函数，原位置为新函数调用。
+em 提取方法
+
+- extract slurp (sl)
+C-c C-m :sl 将for 代码块外部变量传入for代码块里面。
+反向操作为 :ba
+
+- ip
+将本地函数数据值变为变量
+** occur and imenu
+--37'
+注：有些windows中没有的键，暂时用C-c代替
+1. improve occur
+#+BEGIN_SRC emacs-lisp
+  (defun occur-dwim ()
+    "Call `occur' with a sane default."
+    (interactive)
+    (push (if (region-active-p)
+              (buffer-substring-no-properties
+               (region-beginning)
+               (region-end))
+            (let ((sym (thing-at-point 'symbol)))
+              (when (stringp sym)
+                (regexp-quote sym))))
+          regexp-history)
+    (call-interactively 'occur))
+  (global-set-key "C-c s o" 'occur-dwim)
+#+END_SRC
+--43'
+;;让弹出窗口显示在右边
+M-x customize-group popwin position:right
+
+;;查找替换
+C-c s o --> C-x o --> M-x occur-edit-mode e 对查找结果进行编辑
+
+;;光标所在位置的单词默认为C-c s o 初始要查找的内容
+
+2. improve imenu
+M-x imenu 列出buffer中所有函数。输入函数名，可跳转到函数定义处。
+
+M-x counsel-imenu 可以列出.js中的函数。(可以在init-packages中定义快捷键)
+
+#+BEGIN_SRC emacs-lisp
+  (defun js2-imenu-make-index ()
+        (interactive)
+        (save-excursion
+          ;; (setq imenu-generic-expression '((nil "describe\\(\"\\(.+\\)\"" 1)))
+          (imenu--generic-function '(("describe" "\\s-*describe\\s-*(\\s-*[\"']\\(.+\\)[\"']\\s-*,.*" 1)
+                                     ("it" "\\s-*it\\s-*(\\s-*[\"']\\(.+\\)[\"']\\s-*,.*" 1)
+                                     ("test" "\\s-*test\\s-*(\\s-*[\"']\\(.+\\)[\"']\\s-*,.*" 1)
+                                     ("before" "\\s-*before\\s-*(\\s-*[\"']\\(.+\\)[\"']\\s-*,.*" 1)
+                                     ("after" "\\s-*after\\s-*(\\s-*[\"']\\(.+\\)[\"']\\s-*,.*" 1)
+                                     ("Function" "function[ \t]+\\([a-zA-Z0-9_$.]+\\)[ \t]*(" 1)
+                                     ("Function" "^[ \t]*\\([a-zA-Z0-9_$.]+\\)[ \t]*=[ \t]*function[ \t]*(" 1)
+                                     ("Function" "^var[ \t]*\\([a-zA-Z0-9_$.]+\\)[ \t]*=[ \t]*function[ \t]*(" 1)
+                                     ("Function" "^[ \t]*\\([a-zA-Z0-9_$.]+\\)[ \t]*()[ \t]*{" 1)
+                                     ("Function" "^[ \t]*\\([a-zA-Z0-9_$.]+\\)[ \t]*:[ \t]*function[ \t]*(" 1)
+                                     ("Task" "[. \t]task([ \t]*['\"]\\([^'\"]+\\)" 1)))))
+  (add-hook 'js2-mode-hook
+                (lambda ()
+                  (setq imenu-create-index-function 'js2-imenu-make-index)))
+
+  (global-set-key (kbd "C-c s i") 'counsel-imenu)
+#+END_SRC
+;; 将describe 等开头的语句块像函数一样定位。(测试时，先将js文件关闭再打开，然后C-c s i)
+** expand-region and iedit mode
+一般选中操作是，在一点按C-spac (windows C-s-@)，C-f/M-f向后选中，打”或(可以将内容括起。
+expand-region 到init-packages; 
+(global-set-key (kbd "C-=") 'er/expand-region)
+作用：不再需要C-spac ，只要按C-=选中光标处字块，再按=向外扩展，-号收缩。
+--56'
+
+iedit 加到init-packages
+(global-set-key (kbd "C-c s e") 'iedit-mode) ;; def: C-;
+注：可以配合前面的occur,exp-region使用
+
+** Bonus Time. Org export
+export to html,  you could also export to pdf
+
+=C-c C-e=
+
+** Exercises
+1. Learn how to use emmet-mode to do zen coding: https://github.com/smihica/emmet-mode
+2. configure your system to export org file to pdf file
+3. install multiple cursor mode and compare it with iedit mode
